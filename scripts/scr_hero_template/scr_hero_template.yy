@@ -1,0 +1,11 @@
+{
+  "resourceType": "GMScript",
+  "resourceVersion": "1.0",
+  "name": "scr_hero_template",
+  "isCompatibility": false,
+  "isDnD": false,
+  "parent": {
+    "name": "Script",
+    "path": "folders/Script.yy",
+  },
+}
