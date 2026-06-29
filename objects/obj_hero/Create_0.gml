@@ -75,6 +75,11 @@ wallet = {
 };
 
 // ============================================================
+// [8.1] FLAG TRACKING
+// ============================================================
+current_flag = noone;
+
+// ============================================================
 // [9.0] JOB ENUM — MESTI SEBELUM job struct
 // ============================================================
 JOB = {
@@ -212,6 +217,63 @@ inventory = {
         owner._check_titles();
         return _total_gold;
     },
+};
+
+// ============================================================
+// [11.5] EQUIPMENT SYSTEM
+// ============================================================
+equipment = {
+    owner  : id,
+    weapon : undefined,
+    armor  : undefined,
+
+    equip : function(_item) {
+        var _category = _get_category(_item.item_type);
+        if (_category == "weapon") {
+            weapon = _item;
+            show_debug_message("[EQUIP:" + owner.identity.name + "] Weapon: " + _item.name);
+        } else if (_category == "armor") {
+            armor = _item;
+            show_debug_message("[EQUIP:" + owner.identity.name + "] Armor: " + _item.name);
+        } else {
+            return false;
+        }
+        owner.recalculate_stats(false);
+        return true;
+    },
+
+    unequip : function(_slot) {
+        if (_slot == "weapon") weapon = undefined;
+        else if (_slot == "armor") armor = undefined;
+        owner.recalculate_stats(false);
+    },
+
+    get_bonus : function() {
+        var _bonus = { attack:0, hp_max:0, mana_max:0, move_speed:0, attack_speed:0 };
+        var _slots = [weapon, armor];
+        for (var i = 0; i < array_length(_slots); i++) {
+            var _item = _slots[i];
+            if (is_undefined(_item)) continue;
+            if (is_undefined(_item.stat_bonus)) continue;
+            var _keys = variable_struct_get_names(_item.stat_bonus);
+            for (var j = 0; j < array_length(_keys); j++) {
+                var _k = _keys[j];
+                if (variable_struct_exists(_bonus, _k)) {
+                    _bonus[$ _k] += _item.stat_bonus[$ _k];
+                }
+            }
+        }
+        return _bonus;
+    },
+
+    _get_category : function(_item_type) {
+        if (string_pos("weapon", _item_type) > 0) return "weapon";
+        if (string_pos("armor",  _item_type) > 0) return "armor";
+        return "unknown";
+    },
+
+    has_weapon : function() { return !is_undefined(weapon); },
+    has_armor  : function() { return !is_undefined(armor);  },
 };
 
 // ============================================================
@@ -412,13 +474,14 @@ recalculate_stats = function(_full_restore = false) {
     var _mana_pct = (stats.mana_max > 0) ? (stats.mana / stats.mana_max) : 1;
 
     var _derived = hero_calculate_derived(base_stats, stat_constants);
+    var _bonus   = equipment.get_bonus();
 
-    stats.hp_max       = _derived.hp_max;
-    stats.mana_max     = _derived.mana_max;
+    stats.hp_max       = _derived.hp_max     + _bonus.hp_max;
+    stats.mana_max     = _derived.mana_max   + _bonus.mana_max;
     stats.hp_regen     = _derived.hp_regen;
     stats.mana_regen   = _derived.mana_regen;
-    stats.move_speed   = _derived.move_speed;
-    stats.attack_speed = _derived.attack_speed;
+    stats.move_speed   = _derived.move_speed + _bonus.move_speed;
+    stats.attack_speed = max(10, _derived.attack_speed - _bonus.attack_speed);
 
     if (_full_restore) {
         stats.hp   = stats.hp_max;
@@ -439,7 +502,10 @@ recalculate_stats = function(_full_restore = false) {
 // [17.1] Terima damage
 take_damage = function(_amount) {
     if (!status.is_alive()) exit;
-    stats.hp = max(0, stats.hp - _amount);
+    var _bonus      = equipment.get_bonus();
+    var _dmg_reduce = clamp(_bonus.hp_max * 0.01, 0, 0.5);
+    var _actual_dmg = floor(_amount * (1 - _dmg_reduce));
+    stats.hp = max(0, stats.hp - _actual_dmg);
     show_debug_message("[HERO:" + identity.name + "] Took "
         + string(_amount) + " damage | HP: "
         + string(stats.hp) + "/" + string(stats.hp_max));
@@ -494,6 +560,10 @@ _check_titles = function() {
     }
     if (history.retreats >= 20 && !_has_title("The Coward")) {
         _award_title("The Coward");
+    }
+	if (equipment.has_weapon() && equipment.has_armor()
+    && !_has_title("The Equipped")) {
+        _award_title("The Equipped");
     }
 };
 
@@ -564,6 +634,11 @@ init_from_blueprint = function(_blueprint) {
 	history.retreats       = _blueprint.history.retreats       ?? 0;
 	titles      = _blueprint.titles;
 	wallet.gold = _blueprint.gold;
+	// [20.4.1] Restore equipment kalau ada dalam blueprint
+    if (variable_struct_exists(_blueprint, "equipment")) {
+        equipment.weapon = _blueprint.equipment.weapon ?? undefined;
+        equipment.armor  = _blueprint.equipment.armor  ?? undefined;
+    }
 
     // [20.5] Kira stats dan init
     recalculate_stats(true);
@@ -1007,6 +1082,43 @@ _init_state_machine = function() {
         },
         on_exit : function() {},
     };
+	
+	// ----------------------------------------------------------
+    // [21.9b] STATE: Move To Flag
+    // ----------------------------------------------------------
+    var _state_move_to_flag = {
+        owner : id,
+        name  : "move_to_flag",
+
+        on_enter : function() {
+            show_debug_message("[HERO:" + owner.identity.name + "] Moving to flag.");
+        },
+        on_step : function() {
+            if (!instance_exists(owner.current_flag)) {
+                owner.current_flag = noone;
+                owner.ai.change_state("idle");
+                return;
+            }
+            if (owner.should_flee_from_enemy()) {
+                owner.current_flag = noone;
+                owner.ai.change_state("flee");
+                return;
+            }
+            var _flag = owner.current_flag;
+            var _dist = point_distance(owner.x, owner.y, _flag.x, _flag.y);
+            var _spd  = owner.stats.move_speed / room_speed;
+            if (_dist <= 48) {
+                if (_flag.is_active) {
+                    _flag.is_active        = false;
+                    _flag.completion_timer = 0;
+                }
+                return;
+            }
+            owner.x += ((_flag.x - owner.x) / _dist) * _spd;
+            owner.y += ((_flag.y - owner.y) / _dist) * _spd;
+        },
+        on_exit : function() {},
+    };
 
     // ----------------------------------------------------------
     // [21.10] ASSEMBLE STATE MACHINE
@@ -1043,6 +1155,7 @@ _init_state_machine = function() {
     ai.register("flee",           _state_flee);
     ai.register("returning",      _state_returning);
     ai.register("unconscious",    _state_unconscious);
+	ai.register("move_to_flag", _state_move_to_flag);
 
     // [21.12] Mula dengan idle
     ai.change_state("idle");
