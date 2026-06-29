@@ -944,11 +944,11 @@ _init_state_machine = function() {
                 var _amount  = _cell.resource.harvest(5);
                 if (_amount > 0) {
                     owner.inventory.add(_cell.resource.type, _amount);
-                    show_debug_message("[HERO:" + owner.identity.name
-                        + "] Gathered " + string(_amount)
-                        + "x " + _cell.resource.type
-                        + " | Inventory: "
-                        + string(owner.inventory.total_items()) + " items");
+                    //show_debug_message("[HERO:" + owner.identity.name
+                    //    + "] Gathered " + string(_amount)
+                    //    + "x " + _cell.resource.type
+                    //    + " | Inventory: "
+                    //    + string(owner.inventory.total_items()) + " items");
                 }
                 if (_cell.resource.is_depleted()) {
                     owner.current_target      = undefined;
