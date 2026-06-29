@@ -207,11 +207,21 @@ function map_generate(_config) {
                     // Ruins spawn pada grass
                     var _dist_from_start = point_distance(c, r,
                         _cfg.start_col, _cfg.start_row);
-                    if (_dist_from_start > _cfg.start_radius + 3
-                    &&  random(1) < _cfg.chance_ruins) {
+						if (_dist_from_start > _cfg.start_radius + 3
+						 &&  random(1) < _cfg.chance_ruins) {
                         _cell.terrain  = _terrain.RUINS;
                         _cell.walkable = true;
-                        // TODO: ruins akan ada enemy spawn + loot
+
+                        // [RUINS] Data untuk enemy spawn + loot
+                        var _enemy_types = ["goblin", "bandit", "skeleton"];
+                        _cell.ruins = {
+                            explored     : false,
+                            enemy_type   : _enemy_types[irandom(2)],
+                            enemy_count  : irandom_range(1, 3),
+                            loot_table   : ["wood", "stone", "iron"],
+                            loot_amount  : irandom_range(5, 20),
+                            spawned      : false,
+                        };
                     }
                 break;
             }
